@@ -55,7 +55,7 @@ Where p.namelast = 'Gaedel' and p.namefirst = 'Eddie'
 and last names as well as the total salary they earned in the major leagues. Sort this list in descending order by the total salary earned. 
 Which Vanderbilt player earned the most money in the majors?*/
 --Answer:  15 players. 
---Answer: David Price - 245553888
+--Answer: David Price - 245,553,888.00
 
 
 Select distinct(p.namelast), p.namefirst, sum(salary.salary) as overall_amt
@@ -102,9 +102,8 @@ ORDER BY totalputouts desc;
 
 
 Select
-	sum(g) as games,
-	CAST(AVG(SOA) AS DECIMAL(10,2)) / sum(g) * 100 AS Strike_outs,
-	CAST(AVG(HRA) AS DECIMAL(10,2)) / sum(g) * 100 AS Home_runs,
+	CAST(AVG(SOA+SO) AS DECIMAL(10,2)) / sum(g) AS Strike_outs,
+	CAST(AVG(HRA+SO) AS DECIMAL(10,2)) / sum(g) AS Home_runs,
 	CASE 
 		WHEN yearid between '1920' and '1929' then '1920s'
 		WHEN yearid between '1930' and '1939' then '1930s'
@@ -121,6 +120,8 @@ From teams
 Where teams.yearid >= 1920
 group by decades
 order by decades desc
+
+--ROUND(avg(COALESCE(so,0)),2)
 
 ---------------------------------------------------------------------------------------------------------------------------------------------------	
 
@@ -163,7 +164,7 @@ ORDER BY percent_successful desc;
 --7d. Then redo your query, excluding the problem year
 --Answer: 2006 St. Louis Cardinals.
 --7e. How often from 1970 – 2016 was it the case that a team with the most wins also won the world series? What percentage of the time?
---Answer: 
+--Answer: 12 YEARS WHERE THE MOST WINS HAD THE WORLD SERIES WIN.  47 YEARS TOTAL.  12/47 = 25.5%
 
 
 Select   ---From 1970 – 2016, what is the largest number of wins for a team that did not win the world series? 
@@ -229,5 +230,161 @@ group by
 	name, yearid, wswin, w
 order by 
 	w desc;
+
+---------------------------------------------------------------------------------------------------------------------------------------------------
+--JASMIN A7:
+
+SELECT
+	DISTINCT yearid,
+	name,
+	wswin,
+	wins,
+	mostwins
+FROM(
+	SELECT  ---this statement tells you if they won the world series or not, and their record.
+		DISTINCT yearid,
+		name,
+		wswin,
+		w AS wins,
+		MAX(w) OVER(PARTITION BY yearid) AS mostwins
+	FROM teams
+	WHERE yearid >= 1970
+	ORDER BY yearid DESC) AS subquery
+WHERE wswin LIKE 'Y'
+	AND wins = mostwins
+ORDER BY yearid DESC;
+
+
+
+---------------------------------------------------------------------------------------------------------------------------------------------------
+
+/*8. Using the attendance figures from the homegames table, find the teams and parks which had the top 5 average attendance per game in 2016 
+(where average attendance is defined as total attendance divided by number of games). Only consider parks where there were at least 10 games played. 
+Report the park name, team name, and average attendance. Repeat for the lowest 5 average attendance.*/
+--Answer: 
+
+/*homegames table
+teams
+parks table
+top 5 average attendance (limit 5)
+per game 2016
+total attendance divided by number of games
+parks with at least 10 games played
+park name, team name, average attendance */
+
+
+Select 
+	park_name, 
+	team, 
+	p.park, 
+	round((cast(h.attendance as numeric) / cast(h.games as numeric))) as avg_attendance
+From homegames as h
+join parks as p
+on h.park = p.park
+Where h.year = '2016'
+group by p.park_name, h.team, p.park, h.attendance, h.games
+order by h.attendance desc
+limit 5;
+
+--------------------------------------------------------------------------------------------------------------------------
+--9. Maggie
+
+/*9. Which managers have won the TSN Manager of the Year award in both the National League (NL) and the American League (AL)? 
+Give their full name and the teams that they were managing when they won the award.*/
+
+/*9. Select namegiven, results.yearid,results.lgid from people
+JOIN
+(Select playerid, yearid,lgid,awardid from awardsmanagers where playerid in
+	(Select playerid
+from awardsmanagers
+where playerid IN
+(select playerid where awardid LIKE 'TSN%' AND lgid IN ('AL'))
+intersect 
+Select playerid
+from awardsmanagers
+where playerid IN
+(select playerid where awardid LIKE 'TSN%' AND lgid IN ('NL')))
+AND awardid LIKE 'TSN%') AS results
+ON people.playerid=results.playerid
+order by results.playerid*/
+
+
+
+-------------------------------------------------------------------------
+
+--10. Jasmin's Query:
+
+/* WITH maxhr AS ( -- 1st CTE: Max hr of each player's annual hr
+	SELECT
+		playerid,
+		yearid,
+		MAX(maxhrppby) OVER(PARTITION BY playerid) AS maxmaxhrppby -- Does yearid even matter?
+	FROM(
+		SELECT DISTINCT
+			playerid,
+			yearid,
+			SUM(hr) OVER(PARTITION BY playerid, yearid) AS maxhrppby -- Gimme each player's annual hr (dup years removed w DISTINCT)
+		FROM batting
+		GROUP BY playerid, yearid, hr
+		ORDER BY playerid) AS subquery
+	GROUP BY
+		playerid,
+		yearid,
+		maxhrppby
+	ORDER BY playerid, yearid DESC),
+--NO: If their maxmaxhrppby (not 2016) > 2016 hr, then they did NOT hit their career highest hr in 2016.
+--YES: If their maxmaxhrppby (2016) <= 2016 hr, then they DID hit their career highest hr in 2016.
+
+sixteenhr AS ( -- 2nd CTE: Number of homeruns for each player in 2016 with at least 1 hr
+	SELECT
+		DISTINCT playerid,
+		SUM(hr) OVER(PARTITION BY playerid) AS totalhrppinsixteen
+	FROM batting
+	WHERE yearid = 2016
+		AND hr >= 1
+	GROUP BY playerid, hr),
+
+decade AS ( -- 3rd CTE: Players with at least 10 yrs in the league
+	SELECT
+		b.playerid,
+		p.debut,
+		p.finalgame,
+		CAST(p.finalgame AS date) - CAST (p.debut AS date) AS daysinlg
+	FROM batting AS b
+	JOIN people AS p
+	ON b.playerid = p.playerid
+	WHERE CAST(p.finalgame AS date) - CAST (p.debut AS date) >= 3650 -- Played for at least 10 years
+	GROUP BY
+		b.playerid,
+		p.finalgame,
+		p.debut)
+-- Note: The only nulls for p.debut and p.finalgame are when both are null (195 rows) so don't worry about them
+
+SELECT
+	DISTINCT mh.playerid,
+	p.namefirst,
+	p.namelast,
+	mh.yearid,
+	mh.maxmaxhrppby,
+	sh.totalhrppinsixteen,
+	ROUND((CAST(d.daysinlg AS numeric) / 365), 2) AS yrsinlg,
+	d.daysinlg
+FROM maxhr AS mh
+JOIN sixteenhr AS sh
+ON mh.playerid = sh.playerid
+JOIN decade AS d
+ON sh.playerid = d.playerid
+JOIN people AS p
+ON d.playerid = p.playerid
+WHERE yearid = 2016 -- Show me their hr for 2016 only
+	AND mh.maxmaxhrppby = sh.totalhrppinsixteen -- Show me that their career high matches 2016
+-- A10: 8 players hit their career highest number of home runs in 2016 (verified playerids thru the query below)
+-- Note: Some ppl's career high is in 2016 and another year: Edwin Encarnacion (2012), Francisco Liriano (2015), Adam Wainwright (2009)
+
+
+
+
+
+
 
 
